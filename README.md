@@ -1,1 +1,1 @@
-# nekotan-release
+# nekotan
