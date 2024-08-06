@@ -41,7 +41,7 @@ const DashboardScreen = () => {
   }, [navigation]);
 
   const fetchAnimeList = async (page = 1) => {
-    if (page > 2 || animeList.length >= 30) {
+    if (page > 2 || animeList.length >= 50) {
       setHasMorePages(false);
       return;
     }
@@ -52,7 +52,7 @@ const DashboardScreen = () => {
       
       const newAnimeList = [];
       $('.venz').find('.detpost').each((index, element) => {
-        if (animeList.length + newAnimeList.length >= 30) {
+        if (animeList.length + newAnimeList.length >= 50) {
           setHasMorePages(false);
           return false; // Break the loop
         }
@@ -64,10 +64,10 @@ const DashboardScreen = () => {
       
       setAnimeList(prevList => {
         const updatedList = [...prevList, ...newAnimeList];
-        if (updatedList.length >= 30) {
+        if (updatedList.length >= 50) {
           setHasMorePages(false);
         }
-        return updatedList.slice(0, 30);
+        return updatedList.slice(0, 50);
       });
       setCurrentPage(page);
       setLoading(false);
@@ -78,7 +78,7 @@ const DashboardScreen = () => {
   };
 
   const handleLoadMore = () => {
-    if (!loading && hasMorePages && animeList.length < 30) {
+    if (!loading && hasMorePages && animeList.length < 50) {
       fetchAnimeList(currentPage + 1);
     }
   };
@@ -128,17 +128,22 @@ const DashboardScreen = () => {
           <Text style={styles.loadingText}>Loading anime list...</Text>
         </View>
       ) : (
-        <FlatList
-          data={filteredAnimeList}
-          renderItem={renderAnimeItem}
-          keyExtractor={item => item.id}
-          numColumns={2}
-          contentContainerStyle={styles.flatListContent}
-          columnWrapperStyle={styles.row}
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.1}
-          ListFooterComponent={renderFooter}
-        />
+        <>
+          <Text style={styles.infoText}>
+            Hanya menampilkan 50 judul Anime terbaru, jika tidak ditemukan disini bisa dicari di Menu Search Anime
+          </Text>
+          <FlatList
+            data={filteredAnimeList}
+            renderItem={renderAnimeItem}
+            keyExtractor={item => item.id}
+            numColumns={2}
+            contentContainerStyle={styles.flatListContent}
+            columnWrapperStyle={styles.row}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.1}
+            ListFooterComponent={renderFooter}
+          />
+        </>
       )}
       <View style={styles.footer}>
         <Text style={styles.footerText}>NekoTan - By NekoNyanDev 2024</Text>
@@ -182,6 +187,12 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     color: '#f4511e',
+  },
+  infoText: {
+    padding: 10,
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
   },
   flatListContent: {
     padding: 10,

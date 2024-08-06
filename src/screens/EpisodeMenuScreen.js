@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -8,55 +8,56 @@ import {
   Image, 
   ActivityIndicator, 
   TextInput,
-  Alert
+  Alert,
+  StatusBar
 } from 'react-native';
+import { useDispatch, useSelector } from 'react-redux';
+import { useFocusEffect } from '@react-navigation/native';
 import axios from 'axios';
 import cheerio from 'cheerio';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { SaveAnimeButton, SaveEpisodeButton } from '../components/AnimeActions';
+import { saveAnime, removeAnime, setLastWatched } from '../redux/animeSlice';
 
-const EpisodeCard = ({ title, date, url, onPress, isSaved, onSaveEpisode, lastWatched }) => (
+const EpisodeCard = ({ title, date, url, onPress, isLastWatched, onLastWatchedPress }) => (
   <TouchableOpacity style={styles.card} onPress={() => onPress(title, url)}>
     <View style={styles.cardContent}>
       <Text style={styles.episodeTitle} numberOfLines={2} ellipsizeMode="tail">{title}</Text>
       <Text style={styles.episodeDate}>{date}</Text>
-      {lastWatched && <Text style={styles.lastWatched}>Last Watched</Text>}
     </View>
-    <SaveEpisodeButton onPress={() => onSaveEpisode(title)} isSaved={isSaved} />
+    <SaveEpisodeButton
+      onPress={() => onLastWatchedPress(title)}
+      isSaved={isLastWatched}
+    />
   </TouchableOpacity>
 );
 
 const EpisodeMenuScreen = ({ navigation, route }) => {
-  const { animeUrl } = route.params;
+  const { animeUrl, title: animeTitle } = route.params;
   const [episodeList, setEpisodeList] = useState([]);
   const [filteredEpisodeList, setFilteredEpisodeList] = useState([]);
   const [animeInfo, setAnimeInfo] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [sortOrder, setSortOrder] = useState('asc'); 
+  const [sortOrder, setSortOrder] = useState('desc');
   const [searchQuery, setSearchQuery] = useState('');
-  const [savedEpisodes, setSavedEpisodes] = useState({});
-  const [savedCategory, setSavedCategory] = useState(null);
-  const [lastEpisode, setLastEpisode] = useState(null);
-  const insets = useSafeAreaInsets();
+  const [batchDownload, setBatchDownload] = useState(null);
+
+  const dispatch = useDispatch();
+  const savedAnimes = useSelector((state) => state.anime.savedAnimes);
+  const lastWatched = useSelector((state) => state.anime.lastWatched);
+
+  const savedAnime = savedAnimes[animeTitle];
+  const isSaved = !!savedAnime;
+  const savedCategory = isSaved ? savedAnime.category : null;
 
   useEffect(() => {
-    fetchAnimeInfo();
-  }, []);
+    navigation.setOptions({
+      headerShown: false,
+    });
+  }, [navigation]);
 
-  useEffect(() => {
-    const filtered = episodeList.filter(episode =>
-      episode.title.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    const sorted = [...filtered].sort((a, b) => 
-      sortOrder === 'asc' 
-        ? a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }) 
-        : b.title.localeCompare(a.title, undefined, { numeric: true, sensitivity: 'base' }) 
-    );
-    setFilteredEpisodeList(sorted);
-  }, [searchQuery, episodeList, sortOrder]); 
-
-  const fetchAnimeInfo = async () => {
+  const fetchAnimeInfo = useCallback(async () => {
     try {
       const response = await axios.get(animeUrl);
       const $ = cheerio.load(response.data);
@@ -74,25 +75,70 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
       setAnimeInfo({ title, image, ...info });
 
       const episodes = [];
-      $('.episodelist')
-        .find('li')
-        .each((index, element) => {
-          const title = $(element).find('a').text().trim();
-          const url = $(element).find('a').attr('href');
-          const dateParts = $(element).find('.zeebr').text().trim().split(',');
-          const formattedDate = `${dateParts[0]}, ${dateParts[1]}`; 
-          
-          episodes.push({ id: index.toString(), title, url, date: formattedDate });
-        });
+      let batchInfo = null;
 
-      setEpisodeList(episodes); 
+      $('.episodelist').each((index, element) => {
+        const $element = $(element);
+        const $title = $element.find('.monktit').text().trim();
+        
+        $element.find('ul li').each((i, li) => {
+          const $li = $(li);
+          const $link = $li.find('a');
+          const title = $link.text().trim();
+          const url = $link.attr('href');
+          const date = $li.find('.zeebr').text().trim();
+          console.log('Raw date string:', date); // Debugging line
+
+          if (title.includes('[BATCH]') || title.includes('Episode 1 –') || title.includes('Episode 1 -')) {
+            batchInfo = { title, url, date };
+          } else {
+            episodes.push({ id: `${index}-${i}`, title, url, date: formatDate(date) });
+          }
+        });
+      });
+
+      setEpisodeList(episodes);
       setFilteredEpisodeList(episodes);
+      setBatchDownload(batchInfo);
     } catch (error) {
       console.error('Error fetching anime info:', error);
     } finally {
       setLoading(false);
     }
+  }, [animeUrl]);
+
+  const formatDate = (dateString) => {
+    if (!dateString) return ''; 
+    
+    dateString = dateString.trim();
+    
+    if (dateString.includes(',')) {
+      const [dayMonth, year] = dateString.split(',');
+      if (dayMonth && year) {
+        return `${dayMonth.trim()}, ${year.trim()}`;
+      }
+    }
+    
+    return dateString;
   };
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchAnimeInfo();
+    }, [fetchAnimeInfo])
+  );
+
+  useEffect(() => {
+    const filtered = episodeList.filter(episode =>
+      episode.title.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    const sorted = [...filtered].sort((a, b) => {
+      const aNumber = parseInt(a.title.match(/\d+/)?.[0] || '0', 10);
+      const bNumber = parseInt(b.title.match(/\d+/)?.[0] || '0', 10);
+      return sortOrder === 'desc' ? bNumber - aNumber : aNumber - bNumber;
+    });
+    setFilteredEpisodeList(sorted);
+  }, [searchQuery, episodeList, sortOrder]);
 
   const handleEpisodePress = (title, url) => {
     navigation.navigate('WatchMenu', { 
@@ -100,10 +146,16 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
       episodeTitle: title,
       animeInfo: animeInfo
     });
-    // Update last watched episode
-    const newSavedEpisodes = { ...savedEpisodes, [title]: true };
-    setSavedEpisodes(newSavedEpisodes);
-    setLastEpisode(title);
+  };
+
+  const handleBatchPress = () => {
+    if (batchDownload) {
+      navigation.navigate('BatchMenu', { 
+        batchUrl: batchDownload.url, 
+        batchTitle: batchDownload.title,
+        animeInfo: animeInfo
+      });
+    }
   };
 
   const toggleSortOrder = () => {
@@ -115,9 +167,15 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
   };
 
   const handleSaveAnime = () => {
-    if (savedCategory) {
-      setSavedCategory(null);
-      Alert.alert("Anime Removed", "This anime has been removed from your saved list.");
+    if (isSaved) {
+      dispatch(removeAnime(animeTitle))
+        .then(() => {
+          Alert.alert("Anime Removed", "This anime has been removed from your saved list.");
+        })
+        .catch((error) => {
+          console.error('Error removing anime:', error);
+          Alert.alert("Error", "Failed to remove anime. Please try again.");
+        });
     } else {
       showSaveCategoryOptions();
     }
@@ -130,25 +188,50 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
       [
         {
           text: "Watch List",
-          onPress: () => setSavedCategory('watchList')
+          onPress: () => saveAnimeWithInfo('watchList')
         },
         {
           text: "On Going",
-          onPress: () => setSavedCategory('onGoing')
+          onPress: () => saveAnimeWithInfo('onGoing')
         },
         {
           text: "Completed",
-          onPress: () => setSavedCategory('completed')
+          onPress: () => saveAnimeWithInfo('completed')
         }
       ]
     );
   };
 
-  const handleSaveEpisode = (episodeTitle) => {
-    setSavedEpisodes(prev => ({
-      ...prev,
-      [episodeTitle]: !prev[episodeTitle]
-    }));
+  const saveAnimeWithInfo = (category) => {
+    if (isSaved) {
+      Alert.alert("Already Saved", `This anime is already saved in the ${savedCategory} category.`);
+    } else {
+      dispatch(saveAnime({
+        animeId: animeTitle,
+        category,
+        title: animeInfo.title,
+        image: animeInfo.image,
+        url: animeUrl
+      }))
+        .then(() => {
+          Alert.alert("Anime Saved", `This anime has been saved to your ${category} list.`);
+        })
+        .catch((error) => {
+          console.error('Error saving anime:', error);
+          Alert.alert("Error", "Failed to save anime. Please try again.");
+        });
+    }
+  };
+
+  const handleLastWatchedPress = (episodeTitle) => {
+    dispatch(setLastWatched({ animeId: animeTitle, episodeTitle }))
+      .then(() => {
+        Alert.alert("Last Watched Updated", `${episodeTitle} has been set as the last watched episode.`);
+      })
+      .catch((error) => {
+        console.error('Error setting last watched:', error);
+        Alert.alert("Error", "Failed to update last watched episode. Please try again.");
+      });
   };
 
   if (loading) {
@@ -161,7 +244,15 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
   }
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar backgroundColor="#f4511e" barStyle="light-content" />
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle} numberOfLines={1}>{animeTitle}</Text>
+        <View style={styles.rightHeaderPlaceholder} />
+      </View>
       {animeInfo && (
         <View style={styles.animeInfoContainer}>
           <Image source={{ uri: animeInfo.image }} style={styles.animeImage} />
@@ -181,10 +272,17 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
           </View>
           <SaveAnimeButton 
             onPress={handleSaveAnime} 
-            isSaved={!!savedCategory} 
+            isSaved={isSaved} 
             category={savedCategory} 
           />
         </View>
+      )}
+
+      {batchDownload && (
+        <TouchableOpacity style={styles.batchContainer} onPress={handleBatchPress}>
+          <Ionicons name="cloud-download-outline" size={24} color="#f4511e" />
+          <Text style={styles.batchText}>Download Batch</Text>
+        </TouchableOpacity>
       )}
 
       <View style={styles.episodeListHeader}>
@@ -217,16 +315,15 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
             date={item.date}
             url={item.url}
             onPress={handleEpisodePress}
-            isSaved={savedEpisodes[item.title]}
-            onSaveEpisode={handleSaveEpisode}
-            lastWatched={item.title === lastEpisode}
+            isLastWatched={lastWatched[animeTitle] === item.title}
+            onLastWatchedPress={handleLastWatchedPress}
           />
         )}
         keyExtractor={item => item.id}
-        contentContainerStyle={styles.episodeList} 
-        style={styles.episodeListContainer} 
+        contentContainerStyle={styles.episodeList}
+        style={styles.episodeListContainer}
       />
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -234,6 +331,27 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f4511e',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+  },
+  backButton: {
+    padding: 5,
+  },
+  headerTitle: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginLeft: 10,
+  },
+  rightHeaderPlaceholder: {
+    width: 24,
   },
   centerContent: {
     justifyContent: 'center',
@@ -274,9 +392,23 @@ const styles = StyleSheet.create({
   boldText: {
     fontWeight: 'bold',
   },
+  batchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  batchText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#f4511e',
+    marginLeft: 10,
+  },
   episodeListHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between', 
+    justifyContent: 'space-between',
     alignItems: 'center',
     padding: 15,
     backgroundColor: '#f4511e',
@@ -302,27 +434,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   episodeListContainer: {
-    flexGrow: 1, 
+    flexGrow: 1,
   },
   episodeList: {
     paddingHorizontal: 10,
-    paddingTop: 10 
+    paddingTop: 10
   },
   card: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#fff',
     borderRadius: 10,
     padding: 15,
-    marginBottom: 10, 
+    marginBottom: 10,
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
   },
-  cardContent: { 
+  cardContent: {
     flex: 1,
   },
   episodeTitle: {
@@ -333,12 +464,6 @@ const styles = StyleSheet.create({
   episodeDate: {
     fontSize: 14,
     color: '#666',
-  },
-  lastWatched: {
-    fontSize: 12,
-    color: '#f4511e',
-    fontStyle: 'italic',
-    marginTop: 5,
   },
 });
 

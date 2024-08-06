@@ -1,104 +1,235 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Linking, Image } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import cheerio from 'cheerio';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import { Ionicons } from '@expo/vector-icons';
 
-const WatchMenuScreen = ({ route }) => {
+import VideoPlayer from './WatchMenu/VideoPlayer';
+import QualitySelector from './WatchMenu/QualitySelector';
+import DownloadOptions from './WatchMenu/DownloadOptions';
+
+const WatchMenuScreen = ({ route, navigation }) => {
   const { episodeUrl, episodeTitle, animeInfo } = route.params;
   const [downloadOptions, setDownloadOptions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [streamingUrl, setStreamingUrl] = useState(null);
+  const [selectedQuality, setSelectedQuality] = useState('480p');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [activeServer, setActiveServer] = useState(null);
+  const [availableServers, setAvailableServers] = useState([]);
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
     fetchEpisodeData();
+    return () => {
+      ScreenOrientation.unlockAsync();
+    };
   }, []);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerShown: !isFullscreen,
+    });
+  }, [isFullscreen, navigation]);
 
   const fetchEpisodeData = async () => {
     try {
       const response = await axios.get(episodeUrl);
       const $ = cheerio.load(response.data);
-      
+
       const downloadOpts = [];
       $('.download ul li').each((index, element) => {
         const $element = $(element);
         const qualityText = $element.find('strong').text();
-        const [format, quality] = qualityText.split(' ');
+        const quality = qualityText.trim();
         const links = [];
         $element.find('a').each((i, el) => {
           links.push({
             server: $(el).text().trim(),
-            url: $(el).attr('href')
+            url: $(el).attr('href'),
           });
         });
         const size = $element.find('i').text();
-        downloadOpts.push({ format, quality, links, size });
+        downloadOpts.push({ quality, links, size });
       });
       setDownloadOptions(downloadOpts);
-      setLoading(false);
+
+      console.log('Download Options:', JSON.stringify(downloadOpts, null, 2));
+
+      const servers = [];
+      if (downloadOpts.some(opt => opt.links.some(link => link.server.toLowerCase() === 'pdrain'))) {
+        servers.push('pdrain');
+      }
+      if (downloadOpts.some(opt => opt.links.some(link => link.server.toLowerCase() === 'mega'))) {
+        servers.push('mega');
+      }
+      setAvailableServers(servers);
+
+      console.log('Available Servers:', servers);
+
+      if (servers.length > 0) {
+        setActiveServer(servers[0]);
+        await setStreamingUrlForQuality('480p', downloadOpts, servers[0]);
+      } else {
+        console.log('No supported streaming servers found');
+        setStreamingUrl(null);
+      }
     } catch (error) {
       console.error('Error fetching episode data:', error);
+    } finally {
       setLoading(false);
     }
   };
 
-  const handleDownloadOptionPress = async (url) => {
+  const followRedirectToPdrain = async (url) => {
     try {
-      await Linking.openURL(url);
+      const response = await axios.get(url);
+      const $ = cheerio.load(response.data);
+      const secureUrl = $('meta[property="og:video:secure_url"]').attr('content');
+      console.log('PDrain Secure URL:', secureUrl);
+      if (secureUrl && secureUrl.includes('pixeldrain.com/api/file')) {
+        return secureUrl;
+      }
+      throw new Error('Secure URL not found in redirect page');
     } catch (error) {
-      console.error('Error opening download URL:', error);
+      console.error('Error following redirect to PDrain:', error);
+      return null;
     }
+  };
+
+  const followRedirectToMega = async (url) => {
+    try {
+      const response = await axios.get(url, {
+        maxRedirects: 5,
+        validateStatus: function (status) {
+          return status >= 200 && status < 300;
+        },
+      });
+      
+      let finalUrl = '';
+      if (response.request && response.request.res && response.request.res.responseUrl) {
+        finalUrl = response.request.res.responseUrl;
+      } else if (response.request && response.request.responseURL) {
+        finalUrl = response.request.responseURL;
+      } else {
+        finalUrl = response.config.url;
+      }
+
+      console.log('Mega Final URL:', finalUrl);
+      
+      if (finalUrl && finalUrl.includes('mega.nz/file/')) {
+        const uid = finalUrl.split('/').pop();
+        const embedUrl = `https://mega.nz/embed/${uid}`;
+        console.log('Mega Embed URL:', embedUrl);
+        return embedUrl;
+      }
+      throw new Error('Mega URL not found in redirect page');
+    } catch (error) {
+      console.error('Error following redirect to Mega:', error);
+      return null;
+    }
+  };
+
+  const setStreamingUrlForQuality = async (quality, options = downloadOptions, server = activeServer) => {
+    console.log('Setting streaming URL for quality:', quality, 'server:', server);
+    const option = options.find(opt => opt.quality.includes(quality));
+    if (option) {
+      const serverLink = option.links.find(link => link.server.toLowerCase() === server);
+      if (serverLink) {
+        try {
+          let finalUrl;
+          if (server === 'pdrain') {
+            finalUrl = await followRedirectToPdrain(serverLink.url);
+          } else if (server === 'mega') {
+            finalUrl = await followRedirectToMega(serverLink.url);
+          }
+          if (finalUrl) {
+            console.log('Final streaming URL:', finalUrl);
+            setStreamingUrl(finalUrl);
+            setSelectedQuality(quality);
+          } else {
+            throw new Error(`Failed to get final ${server.toUpperCase()} URL`);
+          }
+        } catch (error) {
+          console.error('Error setting streaming URL:', error);
+          setStreamingUrl(null);
+        }
+      } else {
+        console.log('Server link not found for:', server);
+        setStreamingUrl(null);
+      }
+    } else {
+      console.log('Quality option not found for:', quality);
+      setStreamingUrl(null);
+    }
+    setLoading(false);
+  };
+
+  const handleQualityChange = async (quality) => {
+    setLoading(true);
+    await setStreamingUrlForQuality(quality);
+  };
+
+  const handleServerChange = async () => {
+    if (availableServers.length > 1) {
+      const newServer = activeServer === 'pdrain' ? 'mega' : 'pdrain';
+      setActiveServer(newServer);
+      setLoading(true);
+      await setStreamingUrlForQuality(selectedQuality, downloadOptions, newServer);
+    }
+  };
+
+  const handleFullscreenChange = (fullscreen) => {
+    setIsFullscreen(fullscreen);
+    navigation.setOptions({
+      headerShown: !fullscreen,
+    });
   };
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#f4511e" />
-        <Text style={styles.loadingText}>Loading episode data...</Text>
+        <Text style={styles.loadingText}>Memuat data episode...</Text>
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.episodeInfo}>
-          <Image
-            source={{ uri: animeInfo?.image || 'https://via.placeholder.com/150' }}
-            style={styles.episodeThumbnail}
-          />
-          <Text style={styles.episodeTitle}>{episodeTitle}</Text>
+    <View style={[styles.container, { paddingTop: isFullscreen ? 0 : insets.top }]}>
+      {streamingUrl ? (
+        <VideoPlayer 
+          streamingUrl={streamingUrl} 
+          onFullscreenChange={handleFullscreenChange}
+        />
+      ) : (
+        <View style={styles.noStreamingContainer}>
+          <Text style={styles.noStreamingText}>Maaf, Anime ini tidak Support Streaming untuk saat ini</Text>
         </View>
-        <View style={styles.downloadSection}>
-          <Text style={styles.sectionTitle}>Download Options</Text>
-          {downloadOptions.map((option, index) => (
-            <View key={index} style={styles.qualitySection}>
-              <View style={styles.qualityHeader}>
-                <Ionicons name="film-outline" size={24} color="#f4511e" />
-                <Text style={styles.qualityTitle}>
-                  {option.format} {option.quality} | {option.size}
-                </Text>
-              </View>
-              <View style={styles.downloadLinks}>
-                {option.links.map((link, linkIndex) => (
-                  <TouchableOpacity
-                    key={linkIndex}
-                    style={styles.downloadButton}
-                    onPress={() => handleDownloadOptionPress(link.url)}
-                  >
-                    <Ionicons name="cloud-download-outline" size={18} color="#fff" />
-                    <Text style={styles.downloadButtonText}>{link.server}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          ))}
-        </View>
-      </ScrollView>
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>NekoTan - By NekoNyanDev 2024</Text>
-      </View>
+      )}
+      {!isFullscreen && (
+        <>
+          <View style={styles.controlsContainer}>
+            <QualitySelector 
+              selectedQuality={selectedQuality} 
+              onQualityChange={handleQualityChange}
+              qualities={downloadOptions.map(opt => opt.quality)}
+            />
+            {availableServers.length > 1 && (
+              <TouchableOpacity style={styles.serverButton} onPress={handleServerChange}>
+                <Ionicons name="swap-horizontal" size={24} color="#f4511e" />
+                <Text style={styles.serverButtonText}>{activeServer.toUpperCase()}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <DownloadOptions downloadOptions={downloadOptions} />
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>NekoTan - By NekoNyanDev 2024</Text>
+          </View>
+        </>
+      )}
     </View>
   );
 };
@@ -106,10 +237,7 @@ const WatchMenuScreen = ({ route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  scrollView: {
-    flex: 1,
+    backgroundColor: '#fff',
   },
   loadingContainer: {
     flex: 1,
@@ -122,74 +250,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#f4511e',
   },
-  episodeInfo: {
-    backgroundColor: '#fff',
-    padding: 20,
+  controlsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
-  episodeThumbnail: {
-    width: 150,
-    height: 150,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  episodeTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    color: '#333',
-  },
-  downloadSection: {
-    padding: 20,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-  },
-  qualitySection: {
-    marginBottom: 20,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  qualityHeader: {
+  serverButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    backgroundColor: '#f0f0f0',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 5,
   },
-  qualityTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 10,
-    color: '#333',
-  },
-  downloadLinks: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'flex-start',
-  },
-  downloadButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f4511e',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    margin: 5,
-  },
-  downloadButtonText: {
-    fontSize: 14,
-    color: '#fff',
+  serverButtonText: {
     marginLeft: 5,
+    color: '#f4511e',
+    fontWeight: 'bold',
+  },
+  noStreamingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  noStreamingText: {
+    fontSize: 16,
+    color: '#f4511e',
+    textAlign: 'center',
   },
   footer: {
     backgroundColor: '#f4511e',

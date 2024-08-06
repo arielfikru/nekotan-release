@@ -2,27 +2,29 @@
   "expo": {
     "name": "Nekotan - Nonton Anime",
     "slug": "LiatAnime",
-    "version": "1.1.0",
-    "orientation": "portrait",
+    "version": "1.1.6",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "ios": {
-      "supportsTablet": true
+      "backgroundColor": "#ee541d"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#ee541d"
       },
-      "package": "com.nyankodev.nekotan"
+      "package": "com.nyankodev.nekotan",
+      "permissions": ["INTERNET"]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "sdkVersion": "48.0.0"
   }
 }
