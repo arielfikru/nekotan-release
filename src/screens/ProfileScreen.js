@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Alert } from 'react-native';
-import { useSelector, useDispatch } from 'react-redux';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { removeAnime } from '../redux/animeSlice';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AnimeCard = ({ title, image, category, lastWatched, onPress }) => {
   const lastEpisode = lastWatched ? lastWatched.match(/Episode\s+(\d+)/i) : null;
@@ -59,11 +59,10 @@ const CategorySection = ({ title, data, navigation, lastWatched }) => {
 };
 
 const ProfileScreen = ({ navigation }) => {
-  const savedAnimes = useSelector((state) => state.anime.savedAnimes);
-  const lastWatched = useSelector((state) => state.anime.lastWatched);
-  const username = useSelector((state) => state.user.username);
+  const [savedAnimes, setSavedAnimes] = useState({});
+  const [lastWatched, setLastWatched] = useState({});
+  const [username, setUsername] = useState('NekoTan User');
   const insets = useSafeAreaInsets();
-  const dispatch = useDispatch();
 
   const [uniqueAnimes, setUniqueAnimes] = useState({});
   const [animeCount, setAnimeCount] = useState({
@@ -72,7 +71,29 @@ const ProfileScreen = ({ navigation }) => {
     completed: 0
   });
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
+    try {
+      const savedAnimesData = await AsyncStorage.getItem('savedAnimes');
+      const lastWatchedData = await AsyncStorage.getItem('lastWatched');
+      const usernameData = await AsyncStorage.getItem('username');
+
+      if (savedAnimesData) setSavedAnimes(JSON.parse(savedAnimesData));
+      if (lastWatchedData) setLastWatched(JSON.parse(lastWatchedData));
+      if (usernameData) setUsername(usernameData);
+
+      processAnimeData(JSON.parse(savedAnimesData) || {});
+    } catch (error) {
+      console.error('Error loading data:', error);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
+
+  const processAnimeData = (animes) => {
     const uniqueAnimesObj = {};
     const counts = {
       watchList: 0,
@@ -80,22 +101,30 @@ const ProfileScreen = ({ navigation }) => {
       completed: 0
     };
 
-    // Sort saved animes by timestamp (assuming newest first)
-    const sortedAnimes = Object.values(savedAnimes).sort((a, b) => b.timestamp - a.timestamp);
-
-    sortedAnimes.forEach(anime => {
+    Object.values(animes).forEach(anime => {
       if (!uniqueAnimesObj[anime.title]) {
         uniqueAnimesObj[anime.title] = anime;
         counts[anime.category]++;
-      } else {
-        // If duplicate found, remove the older entry from Redux
-        dispatch(removeAnime(uniqueAnimesObj[anime.title].animeId));
       }
     });
 
     setUniqueAnimes(uniqueAnimesObj);
     setAnimeCount(counts);
-  }, [savedAnimes, dispatch]);
+  };
+
+  const removeAnime = async (animeTitle) => {
+    try {
+      const updatedSavedAnimes = { ...savedAnimes };
+      delete updatedSavedAnimes[animeTitle];
+      await AsyncStorage.setItem('savedAnimes', JSON.stringify(updatedSavedAnimes));
+      setSavedAnimes(updatedSavedAnimes);
+      processAnimeData(updatedSavedAnimes);
+      Alert.alert("Anime Removed", "The anime has been removed from your list.");
+    } catch (error) {
+      console.error('Error removing anime:', error);
+      Alert.alert("Error", "Failed to remove anime. Please try again.");
+    }
+  };
 
   const categorizedAnimes = {
     watchList: [],

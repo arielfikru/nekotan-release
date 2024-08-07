@@ -2,7 +2,7 @@
   "expo": {
     "name": "Nekotan - Nonton Anime",
     "slug": "LiatAnime",
-    "version": "1.1.6",
+    "version": "1.1.8",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -10,6 +10,9 @@
       "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ee541d"
+    },
+    "ios": {
+      "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
@@ -21,9 +24,6 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    },
-    "runtimeVersion": {
-      "policy": "sdkVersion"
     },
     "sdkVersion": "48.0.0"
   }

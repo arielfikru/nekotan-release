@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, TouchableWithoutFeedback, Dimensions, BackHandler, StatusBar, Animated, Easing } from 'react-native';
 import { Video } from 'expo-av';
-import { WebView } from 'react-native-webview';
 import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -10,7 +9,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const VideoPlayer = ({ streamingUrl, onFullscreenChange }) => {
   const [status, setStatus] = useState({});
-  const [showControls, setShowControls] = useState(true);
+  const [showControls, setShowControls] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isBuffering, setIsBuffering] = useState(true);
   const videoRef = useRef(null);
@@ -80,15 +79,23 @@ const VideoPlayer = ({ streamingUrl, onFullscreenChange }) => {
     if (controlsTimeout.current) {
       clearTimeout(controlsTimeout.current);
     }
-    setShowControls(true);
-    controlsTimeout.current = setTimeout(() => {
-      setShowControls(false);
-    }, 3000);
+    if (status.isPlaying) {
+      controlsTimeout.current = setTimeout(() => {
+        setShowControls(false);
+      }, 3000);
+    }
   };
 
   const toggleControls = () => {
-    setShowControls(!showControls);
-    resetControlsTimeout();
+    setShowControls((prevShowControls) => {
+      const newShowControls = !prevShowControls;
+      if (newShowControls && status.isPlaying) {
+        resetControlsTimeout();
+      } else if (!newShowControls) {
+        clearTimeout(controlsTimeout.current);
+      }
+      return newShowControls;
+    });
   };
 
   const toggleFullscreen = async () => {
@@ -123,25 +130,15 @@ const VideoPlayer = ({ streamingUrl, onFullscreenChange }) => {
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
   };
 
-  if (!streamingUrl) {
-    return (
-      <View style={styles.noStreamingContainer}>
-        <Text style={styles.noStreamingText}>Maaf, Anime ini tidak Support Streaming untuk saat ini</Text>
-      </View>
-    );
-  }
-
   const videoStyle = isFullscreen
     ? { width: SCREEN_HEIGHT, height: SCREEN_WIDTH }
     : { width: SCREEN_WIDTH, height: SCREEN_WIDTH * (9/16) };
-
-  const VideoComponent = streamingUrl.includes('mega.nz') ? WebView : Video;
 
   return (
     <View style={[styles.videoContainer, isFullscreen && styles.fullscreenContainer]}>
       <TouchableWithoutFeedback onPress={toggleControls}>
         <View>
-          <VideoComponent
+          <Video
             ref={videoRef}
             source={{ uri: streamingUrl }}
             style={videoStyle}
@@ -201,7 +198,6 @@ const VideoPlayer = ({ streamingUrl, onFullscreenChange }) => {
   );
 };
 
-
 const styles = StyleSheet.create({
   videoContainer: {
     backgroundColor: '#000',
@@ -257,15 +253,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     minWidth: 40,
-  },
-  noStreamingContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  noStreamingText: {
-    fontSize: 16,
-    color: '#f4511e',
-    textAlign: 'center',
   },
 });
 

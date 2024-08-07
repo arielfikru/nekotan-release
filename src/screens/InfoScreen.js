@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
 const InfoScreen = () => {
-  const appVersion = "1.1.7";
+  const appVersion = "1.1.8";
   const githubLink = "https://github.com/arielfikru/nekotan-release";
 
   const openGithubLink = () => {

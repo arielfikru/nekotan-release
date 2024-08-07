@@ -11,14 +11,13 @@ import {
   Alert,
   StatusBar
 } from 'react-native';
-import { useDispatch, useSelector } from 'react-redux';
 import { useFocusEffect } from '@react-navigation/native';
 import axios from 'axios';
 import cheerio from 'cheerio';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SaveAnimeButton, SaveEpisodeButton } from '../components/AnimeActions';
-import { saveAnime, removeAnime, setLastWatched } from '../redux/animeSlice';
 
 const EpisodeCard = ({ title, date, url, onPress, isLastWatched, onLastWatchedPress }) => (
   <TouchableOpacity style={styles.card} onPress={() => onPress(title, url)}>
@@ -42,20 +41,9 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
   const [sortOrder, setSortOrder] = useState('desc');
   const [searchQuery, setSearchQuery] = useState('');
   const [batchDownload, setBatchDownload] = useState(null);
-
-  const dispatch = useDispatch();
-  const savedAnimes = useSelector((state) => state.anime.savedAnimes);
-  const lastWatched = useSelector((state) => state.anime.lastWatched);
-
-  const savedAnime = savedAnimes[animeTitle];
-  const isSaved = !!savedAnime;
-  const savedCategory = isSaved ? savedAnime.category : null;
-
-  useEffect(() => {
-    navigation.setOptions({
-      headerShown: false,
-    });
-  }, [navigation]);
+  const [isSaved, setIsSaved] = useState(false);
+  const [savedCategory, setSavedCategory] = useState(null);
+  const [lastWatched, setLastWatched] = useState(null);
 
   const fetchAnimeInfo = useCallback(async () => {
     try {
@@ -87,7 +75,6 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
           const title = $link.text().trim();
           const url = $link.attr('href');
           const date = $li.find('.zeebr').text().trim();
-          console.log('Raw date string:', date); // Debugging line
 
           if (title.includes('[BATCH]') || title.includes('Episode 1 –') || title.includes('Episode 1 -')) {
             batchInfo = { title, url, date };
@@ -122,10 +109,43 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
     return dateString;
   };
 
+  const checkSavedStatus = useCallback(async () => {
+    try {
+      const savedAnimes = await AsyncStorage.getItem('savedAnimes');
+      if (savedAnimes !== null) {
+        const animes = JSON.parse(savedAnimes);
+        const savedAnime = animes[animeTitle];
+        if (savedAnime) {
+          setIsSaved(true);
+          setSavedCategory(savedAnime.category);
+        } else {
+          setIsSaved(false);
+          setSavedCategory(null);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking saved status:', error);
+    }
+  }, [animeTitle]);
+
+  const loadLastWatched = useCallback(async () => {
+    try {
+      const lastWatchedData = await AsyncStorage.getItem('lastWatched');
+      if (lastWatchedData !== null) {
+        const lastWatchedAnimes = JSON.parse(lastWatchedData);
+        setLastWatched(lastWatchedAnimes[animeTitle] || null);
+      }
+    } catch (error) {
+      console.error('Error loading last watched:', error);
+    }
+  }, [animeTitle]);
+
   useFocusEffect(
     useCallback(() => {
       fetchAnimeInfo();
-    }, [fetchAnimeInfo])
+      checkSavedStatus();
+      loadLastWatched();
+    }, [fetchAnimeInfo, checkSavedStatus, loadLastWatched])
   );
 
   useEffect(() => {
@@ -150,10 +170,10 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
 
   const handleBatchPress = () => {
     if (batchDownload) {
-      navigation.navigate('BatchMenu', { 
+      navigation.navigate('DownloadBatch', { 
         batchUrl: batchDownload.url, 
         batchTitle: batchDownload.title,
-        animeInfo: animeInfo
+        animeImage: animeInfo.image
       });
     }
   };
@@ -166,18 +186,23 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
     return text.length > 50 ? text.substring(0, 50) + '...' : text;
   };
 
-  const handleSaveAnime = () => {
-    if (isSaved) {
-      dispatch(removeAnime(animeTitle))
-        .then(() => {
-          Alert.alert("Anime Removed", "This anime has been removed from your saved list.");
-        })
-        .catch((error) => {
-          console.error('Error removing anime:', error);
-          Alert.alert("Error", "Failed to remove anime. Please try again.");
-        });
-    } else {
-      showSaveCategoryOptions();
+  const handleSaveAnime = async () => {
+    try {
+      const savedAnimes = await AsyncStorage.getItem('savedAnimes');
+      let animes = savedAnimes ? JSON.parse(savedAnimes) : {};
+
+      if (isSaved) {
+        delete animes[animeTitle];
+        await AsyncStorage.setItem('savedAnimes', JSON.stringify(animes));
+        setIsSaved(false);
+        setSavedCategory(null);
+        Alert.alert("Anime Removed", "This anime has been removed from your saved list.");
+      } else {
+        showSaveCategoryOptions();
+      }
+    } catch (error) {
+      console.error('Error saving/removing anime:', error);
+      Alert.alert("Error", "Failed to save/remove anime. Please try again.");
     }
   };
 
@@ -202,36 +227,42 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
     );
   };
 
-  const saveAnimeWithInfo = (category) => {
-    if (isSaved) {
-      Alert.alert("Already Saved", `This anime is already saved in the ${savedCategory} category.`);
-    } else {
-      dispatch(saveAnime({
-        animeId: animeTitle,
+  const saveAnimeWithInfo = async (category) => {
+    try {
+      const savedAnimes = await AsyncStorage.getItem('savedAnimes');
+      let animes = savedAnimes ? JSON.parse(savedAnimes) : {};
+
+      animes[animeTitle] = {
         category,
         title: animeInfo.title,
         image: animeInfo.image,
         url: animeUrl
-      }))
-        .then(() => {
-          Alert.alert("Anime Saved", `This anime has been saved to your ${category} list.`);
-        })
-        .catch((error) => {
-          console.error('Error saving anime:', error);
-          Alert.alert("Error", "Failed to save anime. Please try again.");
-        });
+      };
+
+      await AsyncStorage.setItem('savedAnimes', JSON.stringify(animes));
+      setIsSaved(true);
+      setSavedCategory(category);
+      Alert.alert("Anime Saved", `This anime has been saved to your ${category} list.`);
+    } catch (error) {
+      console.error('Error saving anime:', error);
+      Alert.alert("Error", "Failed to save anime. Please try again.");
     }
   };
 
-  const handleLastWatchedPress = (episodeTitle) => {
-    dispatch(setLastWatched({ animeId: animeTitle, episodeTitle }))
-      .then(() => {
-        Alert.alert("Last Watched Updated", `${episodeTitle} has been set as the last watched episode.`);
-      })
-      .catch((error) => {
-        console.error('Error setting last watched:', error);
-        Alert.alert("Error", "Failed to update last watched episode. Please try again.");
-      });
+  const handleLastWatchedPress = async (episodeTitle) => {
+    try {
+      const lastWatchedData = await AsyncStorage.getItem('lastWatched');
+      let lastWatchedAnimes = lastWatchedData ? JSON.parse(lastWatchedData) : {};
+
+      lastWatchedAnimes[animeTitle] = episodeTitle;
+
+      await AsyncStorage.setItem('lastWatched', JSON.stringify(lastWatchedAnimes));
+      setLastWatched(episodeTitle);
+      Alert.alert("Last Watched Updated", `${episodeTitle} has been set as the last watched episode.`);
+    } catch (error) {
+      console.error('Error setting last watched:', error);
+      Alert.alert("Error", "Failed to update last watched episode. Please try again.");
+    }
   };
 
   if (loading) {
@@ -315,7 +346,7 @@ const EpisodeMenuScreen = ({ navigation, route }) => {
             date={item.date}
             url={item.url}
             onPress={handleEpisodePress}
-            isLastWatched={lastWatched[animeTitle] === item.title}
+            isLastWatched={lastWatched === item.title}
             onLastWatchedPress={handleLastWatchedPress}
           />
         )}

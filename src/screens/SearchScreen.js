@@ -68,22 +68,32 @@ const SearchScreen = ({ navigation }) => {
     </TouchableOpacity>
   );
 
+  const handleGenreListPress = () => {
+    navigation.navigate('GenreList');
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <KeyboardAvoidingView 
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardAvoidingView}
       >
-        <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search anime..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onSubmitEditing={handleSearch}
-          />
-          <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
-            <Ionicons name="search" size={24} color="#f4511e" />
+        <View style={styles.header}>
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search anime..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              onSubmitEditing={handleSearch}
+            />
+            <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
+              <Ionicons name="search" size={24} color="#f4511e" />
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.genreButton} onPress={handleGenreListPress}>
+            <Ionicons name="list" size={24} color="#f4511e" />
+            <Text style={styles.genreButtonText}>Genres</Text>
           </TouchableOpacity>
         </View>
         
@@ -121,10 +131,16 @@ const styles = StyleSheet.create({
   keyboardAvoidingView: {
     flex: 1,
   },
-  searchContainer: {
+  header: {
     flexDirection: 'row',
+    alignItems: 'center',
     padding: 10,
     backgroundColor: '#f4511e',
+  },
+  searchContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
@@ -143,6 +159,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 20,
     marginLeft: 10,
+  },
+  genreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  genreButtonText: {
+    marginLeft: 5,
+    color: '#f4511e',
+    fontWeight: 'bold',
   },
   centerContent: {
     flex: 1,

@@ -1,14 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import axios from 'axios';
 import cheerio from 'cheerio';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { Ionicons } from '@expo/vector-icons';
+import { WebView } from 'react-native-webview';
 
 import VideoPlayer from './WatchMenu/VideoPlayer';
 import QualitySelector from './WatchMenu/QualitySelector';
 import DownloadOptions from './WatchMenu/DownloadOptions';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const WatchMenuScreen = ({ route, navigation }) => {
   const { episodeUrl, episodeTitle, animeInfo } = route.params;
@@ -19,6 +22,9 @@ const WatchMenuScreen = ({ route, navigation }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeServer, setActiveServer] = useState(null);
   const [availableServers, setAvailableServers] = useState([]);
+  const [isMegaVideo, setIsMegaVideo] = useState(false);
+  const [showMegaControls, setShowMegaControls] = useState(false);
+  const webViewRef = useRef(null);
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -142,8 +148,10 @@ const WatchMenuScreen = ({ route, navigation }) => {
           let finalUrl;
           if (server === 'pdrain') {
             finalUrl = await followRedirectToPdrain(serverLink.url);
+            setIsMegaVideo(false);
           } else if (server === 'mega') {
             finalUrl = await followRedirectToMega(serverLink.url);
+            setIsMegaVideo(true);
           }
           if (finalUrl) {
             console.log('Final streaming URL:', finalUrl);
@@ -188,6 +196,40 @@ const WatchMenuScreen = ({ route, navigation }) => {
     });
   };
 
+  const handleWebViewNavigation = (navState) => {
+    if (isMegaVideo && navState.url.includes('mega.nz/file/')) {
+      webViewRef.current.stopLoading();
+      setShowMegaControls(true);
+      setTimeout(() => setShowMegaControls(false), 3000);
+      return false;
+    }
+    return true;
+  };
+
+  const MegaPlayer = () => (
+    <View style={styles.megaPlayerContainer}>
+      <WebView
+        ref={webViewRef}
+        source={{ uri: streamingUrl }}
+        style={styles.webView}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        allowsFullscreenVideo={true}
+        onNavigationStateChange={handleWebViewNavigation}
+      />
+      {showMegaControls && (
+        <View style={styles.megaControls}>
+          <TouchableOpacity onPress={() => webViewRef.current.reload()} style={styles.controlButton}>
+            <Ionicons name="refresh" size={24} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setIsFullscreen(!isFullscreen)} style={styles.controlButton}>
+            <Ionicons name={isFullscreen ? "contract" : "expand"} size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -200,10 +242,14 @@ const WatchMenuScreen = ({ route, navigation }) => {
   return (
     <View style={[styles.container, { paddingTop: isFullscreen ? 0 : insets.top }]}>
       {streamingUrl ? (
-        <VideoPlayer 
-          streamingUrl={streamingUrl} 
-          onFullscreenChange={handleFullscreenChange}
-        />
+        isMegaVideo ? (
+          <MegaPlayer />
+        ) : (
+          <VideoPlayer 
+            streamingUrl={streamingUrl} 
+            onFullscreenChange={handleFullscreenChange}
+          />
+        )
       ) : (
         <View style={styles.noStreamingContainer}>
           <Text style={styles.noStreamingText}>Maaf, Anime ini tidak Support Streaming untuk saat ini</Text>
@@ -224,6 +270,13 @@ const WatchMenuScreen = ({ route, navigation }) => {
               </TouchableOpacity>
             )}
           </View>
+          {isMegaVideo && (
+            <View style={styles.megaInstructionContainer}>
+              <Text style={styles.megaInstructionText}>
+                Tekan judul video di atas untuk memunculkan kontrol video
+              </Text>
+            </View>
+          )}
           <DownloadOptions downloadOptions={downloadOptions} />
           <View style={styles.footer}>
             <Text style={styles.footerText}>NekoTan - By NekoNyanDev 2024</Text>
@@ -289,6 +342,38 @@ const styles = StyleSheet.create({
   footerText: {
     color: '#fff',
     fontSize: 12,
+  },
+  megaPlayerContainer: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_WIDTH * (9/16),
+  },
+  webView: {
+    flex: 1,
+  },
+  megaControls: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 10,
+  },
+  controlButton: {
+    padding: 5,
+  },
+  megaInstructionContainer: {
+    backgroundColor: '#f0f0f0',
+    padding: 10,
+    margin: 10,
+    borderRadius: 5,
+  },
+  megaInstructionText: {
+    fontSize: 14,
+    color: '#333',
+    textAlign: 'center',
   },
 });
 

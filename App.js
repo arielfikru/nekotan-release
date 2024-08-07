@@ -16,6 +16,10 @@ import SearchScreen from './src/screens/SearchScreen';
 import InfoScreen from './src/screens/InfoScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import ProfileSettingsScreen from './src/screens/ProfileSettingsScreen';
+import ReleaseSchedule from './src/screens/ReleaseSchedule';
+import DownloadBatchScreen from './src/screens/DownloadBatchScreen';
+import GenreListScreen from './src/screens/GenreListScreen';
+import GenreAnimeScreen from './src/screens/GenreAnimeScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -102,6 +106,8 @@ const TabNavigator = ({ isFullscreen }) => (
 
         if (route.name === 'Home') {
           iconName = focused ? 'home' : 'home-outline';
+        } else if (route.name === 'ReleaseSchedule') {
+          iconName = focused ? 'calendar' : 'calendar-outline';
         } else if (route.name === 'Search') {
           iconName = focused ? 'search' : 'search-outline';
         } else if (route.name === 'Profile') {
@@ -136,6 +142,14 @@ const TabNavigator = ({ isFullscreen }) => (
         headerShown: false,
         title: 'NekoTan'
       }} 
+    />
+    <Tab.Screen 
+      name="ReleaseSchedule" 
+      component={ReleaseSchedule}
+      options={{
+        headerShown: !isFullscreen,
+        title: 'Release Schedule'
+      }}
     />
     <Tab.Screen 
       name="Search" 
@@ -206,6 +220,60 @@ const RootStack = () => {
             />
           )}
         </Stack.Screen>
+        <Stack.Screen
+          name="DownloadBatch"
+          component={DownloadBatchScreen}
+          options={{
+            headerStyle: {
+              backgroundColor: '#f4511e',
+            },
+            headerTintColor: '#fff',
+            headerTitleStyle: {
+              fontWeight: 'bold',
+              fontSize: 16,
+            },
+            headerTitleAlign: 'left',
+            headerBackTitleVisible: false,
+            title: 'Download Batch',
+            headerShown: true,
+          }}
+        />
+        <Stack.Screen
+          name="GenreList"
+          component={GenreListScreen}
+          options={{
+            headerStyle: {
+              backgroundColor: '#f4511e',
+            },
+            headerTintColor: '#fff',
+            headerTitleStyle: {
+              fontWeight: 'bold',
+              fontSize: 16,
+            },
+            headerTitleAlign: 'left',
+            headerBackTitleVisible: false,
+            title: 'Anime Genres',
+            headerShown: true,
+          }}
+        />
+        <Stack.Screen
+          name="GenreAnime"
+          component={GenreAnimeScreen}
+          options={({ route }) => ({
+            headerStyle: {
+              backgroundColor: '#f4511e',
+            },
+            headerTintColor: '#fff',
+            headerTitleStyle: {
+              fontWeight: 'bold',
+              fontSize: 16,
+            },
+            headerTitleAlign: 'left',
+            headerBackTitleVisible: false,
+            title: `${route.params.genre} Anime`,
+            headerShown: true,
+          })}
+        />
       </Stack.Navigator>
     </View>
   );
