@@ -1,3 +1,5 @@
+![NekoTan Logo](assets/icon.png)
+
 # NekoTan - Nonton Anime
 
 NekoTan is an open-source anime streaming app that allows users to watch and discover anime easily on their mobile devices.
